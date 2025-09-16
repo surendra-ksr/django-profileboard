@@ -1,0 +1,11 @@
+include README.md
+include LICENSE
+recursive-include src/django_profileboard/templates *.html
+recursive-include src/django_profileboard/static *
+recursive-include tests *.py
+global-exclude venv/*
+global-exclude __pycache__/*
+global-exclude *.pyc
+global-exclude .git/*
+global-exclude dist/*
+global-exclude build/*

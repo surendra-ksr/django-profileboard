@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "django-profileboard"
+dynamic = ["version"]
+description = "Production-ready Django performance profiler with live dashboard"
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"},
+]
+keywords = ["django", "profiling", "performance", "dashboard", "monitoring"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Framework :: Django :: 3.2",
+    "Framework :: Django :: 4.0",
+    "Framework :: Django :: 4.1",
+    "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.0",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "Django>=3.2",
+    "channels>=4.0.0",
+    "channels-redis>=4.0.0",
+    "memray>=1.0.0",
+    "opentelemetry-instrumentation-django>=0.40b0",
+    "django-flags>=5.0.0",
+]
+requires-python = ">=3.8"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/django-profileboard"
+Repository = "https://github.com/yourusername/django-profileboard"
+Documentation = "https://django-profileboard.readthedocs.io/"
+"Bug Reports" = "https://github.com/yourusername/django-profileboard/issues"
+
+[tool.hatch.version]
+path = "src/django_profileboard/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/django_profileboard"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "venv/",
+    "__pycache__/",
+    "*.pyc",
+    ".git/",
+    "dist/",
+    "build/",
+    ".pytest_cache/",
+    "*.egg-info/"
+]
