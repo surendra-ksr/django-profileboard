@@ -4,7 +4,7 @@ name: Deploy Jekyll with GitHub Pages dependencies preinstalled
 on:
   # Runs on pushes targeting the default branch
   push:
-    branches: ["master"]
+    branches: ["main"] # Changed from master to main
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -27,15 +27,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
+        # Checks out the repository under $GITHUB_WORKSPACE, so your job can access it
         uses: actions/checkout@v4
       - name: Setup Pages
+        # Configures GitHub Pages to use Jekyll
         uses: actions/configure-pages@v5
       - name: Build with Jekyll
+        # Builds the Jekyll site
         uses: actions/jekyll-build-pages@v1
         with:
           source: ./
           destination: ./_site
       - name: Upload artifact
+        # Uploads the built site as an artifact
         uses: actions/upload-pages-artifact@v3
 
   # Deployment job
@@ -48,4 +52,5 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
+        # Deploys the artifact to GitHub Pages
         uses: actions/deploy-pages@v4
