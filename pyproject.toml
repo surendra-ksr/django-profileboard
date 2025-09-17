@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-profileboard"
-dynamic = ["version"]
+version = "0.1.0"
 description = "Production-ready Django performance profiler with live dashboard"
 readme = "README.md"
 license = "MIT"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "Surendra Reddy Kamini", email = "reddysurendra106@gmail.com"},
 ]
 keywords = ["django", "profiling", "performance", "dashboard", "monitoring"]
 classifiers = [
@@ -47,7 +47,7 @@ requires-python = ">=3.8"
 [project.urls]
 Homepage = "https://github.com/surendra-ksr/django-profileboard"
 Repository = "https://github.com/surendra-ksr/django-profileboard"
-Documentation  = "https://surendra-ksr.github.io/django-profileboard/"
+Documentation  = "https://django-profileboard.readthedocs.io"
 "Bug Reports" = "https://github.com/surendra-ksr/django-profileboard/issues"
 
 [tool.hatch.version]
