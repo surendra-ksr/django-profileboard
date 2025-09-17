@@ -72,6 +72,8 @@
             left: 40px;
             right: 20px;
             height: 15px;
+            display: flex;
+            justify-content: space-between;
         }
         
         .tooltip {
@@ -96,11 +98,13 @@
             top: 5px;
             right: 5px;
             z-index: 10;
+            background: rgba(255,255,255,0.8);
+            padding: 5px;
+            border-radius: 3px;
         }
         
         .zoom-slider {
-            width: 100px;
-            margin: 5px;
+            width: 80px;
         }
         
         .chart-line polyline {
@@ -171,6 +175,9 @@
                             </button>
                             <button type="button" class="btn btn-outline-secondary" onclick="exportData()">
                                 Export Data
+                            </button>
+                            <button type="button" class="btn btn-outline-info" onclick="toggleTimezone()" id="timezone-toggle">
+                                UTC
                             </button>
                         </div>
                     </div>
@@ -310,6 +317,7 @@
                 this.websocket = null;
                 this.charts = {};
                 this.isProfilerEnabled = false;
+                this.isUTC = true;
                 this.initCharts();
                 this.initWebSocket();
             }
@@ -475,18 +483,17 @@
                         <div style="position: absolute; top: 50%; transform: translateY(-50%);">${(maxDuration/2).toFixed(2)}s</div>
                         <div style="position: absolute; bottom: 0;">0s</div>
                     </div>
-                    <div class="chart-line" onmousemove="dashboard.showTooltip(event, 'response', ${JSON.stringify(recentRequests)}, ${maxDuration})" onmouseleave="dashboard.hideTooltip()">
+                    <div class="chart-line" data-requests='${JSON.stringify(recentRequests)}' data-max='${maxDuration}' onmousemove="window.dashboard.showTooltip(event, 'response')" onmouseleave="window.dashboard.hideTooltip()">
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none">
                             <polyline points="${this.addPadding(points)}" stroke="#667eea"/>
                         </svg>
                     </div>
                     <div class="x-labels chart-labels">
-                        <span style="float: left;">Start</span>
-                        <span style="float: right;">Now</span>
+                        ${recentRequests.filter((_, i) => i % Math.ceil(recentRequests.length/5) === 0).map(req => 
+                            `<span>${new Date(req.timestamp).toLocaleTimeString()}</span>`
+                        ).join('')}
                     </div>
                 `;
-                this.attachZoomHandler('response-zoom', 'responseTime');
-
                 // Request volume line chart
                 const hourCounts = {};
                 requests.forEach(req => {
@@ -517,11 +524,10 @@
                             </svg>
                         </div>
                         <div class="x-labels chart-labels">
-                            <span style="float: left;">Hours</span>
+                            <span style="float: left;">${Math.min(...Object.keys(hourCounts))}h</span>
+                            <span style="float: right;">${Math.max(...Object.keys(hourCounts))}h</span>
                         </div>
                     `;
-                    this.attachZoomHandler('volume-zoom', 'requestVolume');
-                
                 // DB Performance line chart
                 const queryCounts = recentRequests.map(r => r.db_queries_count || 0);
                 const maxQueries = Math.max(...queryCounts);
@@ -543,11 +549,10 @@
                         </svg>
                     </div>
                     <div class="x-labels chart-labels">
-                        <span style="float: left;">Requests</span>
+                        <span style="float: left;">${new Date(recentRequests[0].timestamp).toLocaleTimeString()}</span>
+                        <span style="float: right;">${new Date(recentRequests[recentRequests.length-1].timestamp).toLocaleTimeString()}</span>
                     </div>
                 `;
-                this.attachZoomHandler('db-zoom', 'dbPerformance');
-                
                 // Memory Usage line chart
                 const memoryRequests = requests.filter(r => r.memory_usage && r.memory_usage > 0).slice(-20);
                 if (memoryRequests.length > 0) {
@@ -571,10 +576,11 @@
                             </svg>
                         </div>
                         <div class="x-labels chart-labels">
-                            <span style="float: left;">Memory Usage</span>
+                            <span style="float: left;">${new Date(memoryRequests[0].timestamp).toLocaleTimeString()}</span>
+                            <span style="float: right;">${new Date(memoryRequests[memoryRequests.length-1].timestamp).toLocaleTimeString()}</span>
                         </div>
                     `;
-                    this.attachZoomHandler('memory-zoom', 'memoryUsage');
+
                 } else {
                     this.charts.memoryUsage.innerHTML = '<p class="text-muted text-center mt-5">No memory data available</p>';
                 }
@@ -582,6 +588,14 @@
                 // Handle case where volume chart data is empty
                 this.charts.requestVolume.innerHTML = '<p class="text-muted text-center mt-5">No request data available</p>';
             }
+            
+            // Attach zoom handlers after all charts are created
+            setTimeout(() => {
+                this.attachZoomHandler('response-zoom', 'responseTime');
+                this.attachZoomHandler('volume-zoom', 'requestVolume');
+                this.attachZoomHandler('db-zoom', 'dbPerformance');
+                this.attachZoomHandler('memory-zoom', 'memoryUsage');
+            }, 200);
             }
 
             showEmptyCharts() {
@@ -603,7 +617,7 @@
                                        request.duration > 1 ? 'status-warning' : 'status-success';
 
                     row.innerHTML = `
-                        <td>${new Date(request.timestamp).toLocaleTimeString()}</td>
+                        <td class="timestamp-cell" data-timestamp="${request.timestamp}">${this.formatTimestamp(request.timestamp)}</td>
                         <td><span class="status-indicator ${statusClass}"></span>${request.status_code}</td>
                         <td><span class="badge bg-secondary">${request.method}</span></td>
                         <td class="text-truncate" style="max-width: 200px;" title="${request.url}">${request.url}</td>
@@ -636,7 +650,7 @@
                                        requestData.duration > 1 ? 'status-warning' : 'status-success';
 
                     newRow.innerHTML = `
-                        <td>${new Date(requestData.timestamp).toLocaleTimeString()}</td>
+                        <td class="timestamp-cell" data-timestamp="${requestData.timestamp}">${this.formatTimestamp(requestData.timestamp)}</td>
                         <td><span class="status-indicator ${statusClass}"></span>${requestData.status_code}</td>
                         <td><span class="badge bg-secondary">${requestData.method}</span></td>
                         <td class="text-truncate" style="max-width: 200px;" title="${requestData.url}">${requestData.url}</td>
@@ -769,42 +783,44 @@
             }
 
             attachZoomHandler(sliderId, chartName) {
-                setTimeout(() => {
-                    const slider = document.getElementById(sliderId);
-                    if (slider) {
-                        slider.addEventListener('input', (e) => {
-                            this.zoomChart(chartName, e.target.value);
-                        });
-                    }
-                }, 100);
+                const slider = document.getElementById(sliderId);
+                if (slider) {
+                    slider.addEventListener('input', (e) => {
+                        this.zoomChart(chartName, e.target.value);
+                    });
+                }
             }
 
-            showTooltip(event, type, data, max) {
-                const rect = event.currentTarget.getBoundingClientRect();
-                const x = ((event.clientX - rect.left) / rect.width) * 100;
-                const index = Math.round((x / 100) * (data.length - 1));
+            showTooltip(event, type) {
+                const element = event.currentTarget;
+                const data = JSON.parse(element.dataset.requests);
                 
-                if (index >= 0 && index < data.length) {
-                    let tooltip = document.getElementById('chart-tooltip');
-                    if (!tooltip) {
-                        tooltip = document.createElement('div');
-                        tooltip.id = 'chart-tooltip';
-                        tooltip.className = 'tooltip';
-                        document.body.appendChild(tooltip);
-                    }
-                    
-                    let content = '';
-                    if (type === 'response') {
-                        content = `${data[index].duration.toFixed(3)}s`;
-                    } else if (type === 'db') {
-                        content = `${data[index].db_queries_count} queries`;
-                    } else if (type === 'memory') {
-                        content = `${data[index].memory_usage.toFixed(1)}MB`;
-                    } else if (type === 'volume') {
-                        const hour = Object.keys(data)[index];
-                        content = `Hour ${hour}: ${data[hour]} requests`;
-                    }
-                    
+                const rect = element.getBoundingClientRect();
+                const x = ((event.clientX - rect.left) / rect.width) * 100;
+                const index = Math.round((x / 100) * (Array.isArray(data) ? data.length - 1 : Object.keys(data).length - 1));
+                
+                let tooltip = document.getElementById('chart-tooltip');
+                if (!tooltip) {
+                    tooltip = document.createElement('div');
+                    tooltip.id = 'chart-tooltip';
+                    tooltip.className = 'tooltip';
+                    document.body.appendChild(tooltip);
+                }
+                
+                let content = '';
+                if (type === 'response' && data[index]) {
+                    content = `${data[index].duration.toFixed(3)}s`;
+                } else if (type === 'db' && data[index]) {
+                    content = `${data[index].db_queries_count} queries`;
+                } else if (type === 'memory' && data[index]) {
+                    content = `${data[index].memory_usage.toFixed(1)}MB`;
+                } else if (type === 'volume') {
+                    const keys = Object.keys(data);
+                    const hour = keys[index];
+                    if (hour) content = `Hour ${hour}: ${data[hour]} requests`;
+                }
+                
+                if (content) {
                     tooltip.textContent = content;
                     tooltip.style.left = event.pageX + 10 + 'px';
                     tooltip.style.top = event.pageY - 30 + 'px';
@@ -821,14 +837,43 @@
 
             zoomChart(chartName, zoomLevel) {
                 const chart = this.charts[chartName];
-                if (!chart) return;
-                
-                const svg = chart.querySelector('svg');
-                if (svg) {
-                    const scale = parseFloat(zoomLevel);
-                    svg.style.transform = `scale(${scale})`;
-                    svg.style.transformOrigin = 'center';
+                if (!chart) {
+                    console.log('Chart not found:', chartName);
+                    return;
                 }
+                
+                const chartLine = chart.querySelector('.chart-line');
+                if (chartLine) {
+                    const scale = parseFloat(zoomLevel);
+                    chartLine.style.transform = `scale(${scale})`;
+                    chartLine.style.transformOrigin = 'center';
+                    console.log(`Zooming ${chartName} to ${scale}x`);
+                } else {
+                    console.log('Chart line not found for:', chartName);
+                }
+            }
+
+            formatTimestamp(timestamp) {
+                const date = new Date(timestamp);
+                if (this.isUTC) {
+                    return date.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+                } else {
+                    return date.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST';
+                }
+            }
+
+            toggleTimezone() {
+                this.isUTC = !this.isUTC;
+                const button = document.getElementById('timezone-toggle');
+                button.textContent = this.isUTC ? 'UTC' : 'IST';
+                
+                // Update all timestamp cells
+                document.querySelectorAll('.timestamp-cell').forEach(cell => {
+                    const timestamp = cell.dataset.timestamp;
+                    if (timestamp) {
+                        cell.textContent = this.formatTimestamp(timestamp);
+                    }
+                });
             }
 
             updateTimeRange() {
@@ -854,6 +899,7 @@
         function toggleProfiler() { window.dashboard?.toggleProfiler(); }
         function exportData() { window.dashboard?.exportData(); }
         function updateTimeRange() { window.dashboard?.updateTimeRange(); }
+        function toggleTimezone() { window.dashboard?.toggleTimezone(); }
     </script>
 </body>
 </html>
