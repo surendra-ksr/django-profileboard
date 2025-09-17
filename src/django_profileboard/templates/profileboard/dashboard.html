@@ -93,19 +93,7 @@
             cursor: crosshair;
         }
         
-        .chart-controls {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            z-index: 10;
-            background: rgba(255,255,255,0.8);
-            padding: 5px;
-            border-radius: 3px;
-        }
-        
-        .zoom-slider {
-            width: 80px;
-        }
+
         
         .chart-line polyline {
             fill: none;
@@ -188,6 +176,8 @@
                                 <option value="5m">Last 5 Minutes</option>
                                 <option value="30m">Last 30 Minutes</option>
                                 <option value="1h" selected>Last Hour</option>
+                                <option value="3h">Last 3 Hours</option>
+                                <option value="6h">Last 6 Hours</option>
                                 <option value="24h">Last 24 Hours</option>
                                 <option value="7d">Last 7 Days</option>
                             </select>
@@ -228,19 +218,15 @@
                     <div class="col-md-6">
                         <div class="chart-container">
                             <h5>Response Time Over Time</h5>
-                            <div class="chart-controls">
-                                <input type="range" class="form-range zoom-slider" min="1" max="10" value="1" id="response-zoom">
-                            </div>
                             <div id="response-time-chart" class="simple-chart"></div>
+
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="chart-container">
                             <h5>Request Volume</h5>
-                            <div class="chart-controls">
-                                <input type="range" class="form-range zoom-slider" min="1" max="10" value="1" id="volume-zoom">
-                            </div>
                             <div id="request-volume-chart" class="simple-chart"></div>
+
                         </div>
                     </div>
                 </div>
@@ -249,19 +235,15 @@
                     <div class="col-md-6">
                         <div class="chart-container">
                             <h5>Database Performance</h5>
-                            <div class="chart-controls">
-                                <input type="range" class="form-range zoom-slider" min="1" max="10" value="1" id="db-zoom">
-                            </div>
                             <div id="db-performance-chart" class="simple-chart"></div>
+
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="chart-container">
                             <h5>Memory Usage</h5>
-                            <div class="chart-controls">
-                                <input type="range" class="form-range zoom-slider" min="1" max="10" value="1" id="memory-zoom">
-                            </div>
                             <div id="memory-usage-chart" class="simple-chart"></div>
+
                         </div>
                     </div>
                 </div>
@@ -323,7 +305,6 @@
             }
 
             initWebSocket() {
-                // Skip WebSocket for development
                 if (!{{ websocket_url|yesno:"true,false" }}) {
                     document.getElementById('connection-status').textContent = 'Static Mode';
                     document.getElementById('connection-status').className = 'connected';
@@ -458,7 +439,7 @@
                 }
 
                 // Response time line chart
-                const recentRequests = requests.slice(-20);
+                const recentRequests = requests;
                 if (recentRequests.length === 0) {
                     this.showEmptyCharts();
                     return;
@@ -471,11 +452,8 @@
                 }
                 
                 const maxDuration = Math.max(...durations);
-                const points = recentRequests.map((req, i) => {
-                    const x = recentRequests.length > 1 ? (i / (recentRequests.length - 1)) * 100 : 50;
-                    const y = maxDuration > 0 ? 100 - ((req.duration || 0) / maxDuration) * 100 : 50;
-                    return `${x},${y}`;
-                }).join(' ');
+                const points = this.mapDataToTimeRange(recentRequests, 'duration', maxDuration);
+                this.currentChartType = 'response';
                 
                 this.charts.responseTime.innerHTML = `
                     <div class="y-labels chart-labels">
@@ -483,34 +461,49 @@
                         <div style="position: absolute; top: 50%; transform: translateY(-50%);">${(maxDuration/2).toFixed(2)}s</div>
                         <div style="position: absolute; bottom: 0;">0s</div>
                     </div>
-                    <div class="chart-line" data-requests='${JSON.stringify(recentRequests)}' data-max='${maxDuration}' onmousemove="window.dashboard.showTooltip(event, 'response')" onmouseleave="window.dashboard.hideTooltip()">
+                    <div class="chart-line" data-requests='${JSON.stringify(recentRequests)}' data-max='${maxDuration}' onmousemove="window.dashboard.showChartTooltip(event, 'response')" onmouseleave="window.dashboard.hideTooltip()">
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none">
                             <polyline points="${this.addPadding(points)}" stroke="#667eea"/>
                         </svg>
                     </div>
                     <div class="x-labels chart-labels">
-                        ${recentRequests.filter((_, i) => i % Math.ceil(recentRequests.length/5) === 0).map(req => 
-                            `<span>${new Date(req.timestamp).toLocaleTimeString()}</span>`
-                        ).join('')}
+                        ${this.generateTimeLabels()}
                     </div>
                 `;
-                // Request volume line chart
-                const hourCounts = {};
-                requests.forEach(req => {
-                    if (req.timestamp) {
-                        const hour = new Date(req.timestamp).getHours();
-                        hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+                // Request volume line chart - count requests per time bucket
+                const now = new Date();
+                const rangeMs = this.getTimeRangeMs();
+                const startTime = now.getTime() - rangeMs;
+                const bucketCount = 20;
+                const bucketSize = rangeMs / bucketCount;
+                const volumeBuckets = [];
+                const volumeData = [];
+                
+                for (let i = 0; i <= bucketCount; i++) {
+                    const bucketTime = startTime + (i * bucketSize);
+                    const x = (i / bucketCount) * 100;
+                    
+                    const count = requests.filter(req => {
+                        const reqTime = new Date(req.timestamp).getTime();
+                        return reqTime >= bucketTime && reqTime < bucketTime + bucketSize;
+                    }).length;
+                    
+                    volumeData.push({ count, hasData: count > 0 });
+                }
+                
+                const maxCount = Math.max(...volumeData.map(d => d.count));
+                
+                volumeData.forEach((data, i) => {
+                    const x = (i / bucketCount) * 100;
+                    if (data.hasData) {
+                        const y = maxCount > 0 ? Math.max(5, 100 - (data.count / maxCount) * 100) : 50;
+                        volumeBuckets.push(`${x},${y}`);
                     }
                 });
                 
-                const hours = Object.keys(hourCounts).sort();
-                if (hours.length > 0) {
-                    const maxCount = Math.max(...Object.values(hourCounts));
-                    const volumePoints = hours.map((hour, i) => {
-                        const x = hours.length > 1 ? (i / (hours.length - 1)) * 100 : 50;
-                        const y = maxCount > 0 ? 100 - (hourCounts[hour] / maxCount) * 100 : 50;
-                        return `${x},${y}`;
-                    }).join(' ');
+                if (volumeBuckets.length > 0) {
+                    const volumePoints = volumeBuckets.join(' ');
+                    this.currentVolumeData = volumeData;
                 
                     this.charts.requestVolume.innerHTML = `
                         <div class="y-labels chart-labels">
@@ -518,24 +511,20 @@
                             <div style="position: absolute; top: 50%; transform: translateY(-50%);">${Math.round(maxCount/2)}</div>
                             <div style="position: absolute; bottom: 0;">0</div>
                         </div>
-                        <div class="chart-line" onmousemove="dashboard.showTooltip(event, 'volume', ${JSON.stringify(hourCounts)}, ${maxCount})" onmouseleave="dashboard.hideTooltip()">
+                        <div class="chart-line" data-requests='${JSON.stringify(volumeData)}' data-max='${maxCount}' onmousemove="window.dashboard.showChartTooltip(event, 'volume')" onmouseleave="window.dashboard.hideTooltip()">
                             <svg viewBox="0 0 100 100" preserveAspectRatio="none">
                                 <polyline points="${this.addPadding(volumePoints)}" stroke="#764ba2"/>
                             </svg>
                         </div>
                         <div class="x-labels chart-labels">
-                            <span style="float: left;">${Math.min(...Object.keys(hourCounts))}h</span>
-                            <span style="float: right;">${Math.max(...Object.keys(hourCounts))}h</span>
+                            ${this.generateTimeLabels()}
                         </div>
                     `;
                 // DB Performance line chart
                 const queryCounts = recentRequests.map(r => r.db_queries_count || 0);
                 const maxQueries = Math.max(...queryCounts);
-                const dbPoints = recentRequests.map((req, i) => {
-                    const x = recentRequests.length > 1 ? (i / (recentRequests.length - 1)) * 100 : 50;
-                    const y = maxQueries > 0 ? 100 - ((req.db_queries_count || 0) / maxQueries) * 100 : 50;
-                    return `${x},${y}`;
-                }).join(' ');
+                const dbPoints = this.mapDataToTimeRange(recentRequests, 'db_queries_count', maxQueries);
+                this.currentChartType = 'db';
                 
                 this.charts.dbPerformance.innerHTML = `
                     <div class="y-labels chart-labels">
@@ -543,26 +532,22 @@
                         <div style="position: absolute; top: 50%; transform: translateY(-50%);">${Math.round(maxQueries/2)}</div>
                         <div style="position: absolute; bottom: 0;">0</div>
                     </div>
-                    <div class="chart-line" onmousemove="dashboard.showTooltip(event, 'db', ${JSON.stringify(recentRequests)}, ${maxQueries})" onmouseleave="dashboard.hideTooltip()">
+                    <div class="chart-line" data-requests='${JSON.stringify(recentRequests)}' data-max='${maxQueries}' onmousemove="window.dashboard.showChartTooltip(event, 'db')" onmouseleave="window.dashboard.hideTooltip()">
                         <svg viewBox="0 0 100 100" preserveAspectRatio="none">
                             <polyline points="${this.addPadding(dbPoints)}" stroke="#28a745"/>
                         </svg>
                     </div>
                     <div class="x-labels chart-labels">
-                        <span style="float: left;">${new Date(recentRequests[0].timestamp).toLocaleTimeString()}</span>
-                        <span style="float: right;">${new Date(recentRequests[recentRequests.length-1].timestamp).toLocaleTimeString()}</span>
+                        ${this.generateTimeLabels()}
                     </div>
                 `;
                 // Memory Usage line chart
-                const memoryRequests = requests.filter(r => r.memory_usage && r.memory_usage > 0).slice(-20);
+                const memoryRequests = requests.filter(r => r.memory_usage && r.memory_usage > 0);
                 if (memoryRequests.length > 0) {
                     const memoryValues = memoryRequests.map(r => r.memory_usage || 0);
                     const maxMemory = Math.max(...memoryValues);
-                    const memoryPoints = memoryRequests.map((req, i) => {
-                        const x = memoryRequests.length > 1 ? (i / (memoryRequests.length - 1)) * 100 : 50;
-                        const y = maxMemory > 0 ? 100 - ((req.memory_usage || 0) / maxMemory) * 100 : 50;
-                        return `${x},${y}`;
-                    }).join(' ');
+                    const memoryPoints = this.mapDataToTimeRange(memoryRequests, 'memory_usage', maxMemory);
+                    this.currentChartType = 'memory';
                     
                     this.charts.memoryUsage.innerHTML = `
                         <div class="y-labels chart-labels">
@@ -570,14 +555,13 @@
                             <div style="position: absolute; top: 50%; transform: translateY(-50%);">${(maxMemory/2).toFixed(1)}MB</div>
                             <div style="position: absolute; bottom: 0;">0MB</div>
                         </div>
-                        <div class="chart-line" onmousemove="dashboard.showTooltip(event, 'memory', ${JSON.stringify(memoryRequests)}, ${maxMemory})" onmouseleave="dashboard.hideTooltip()">
+                        <div class="chart-line" data-requests='${JSON.stringify(memoryRequests)}' data-max='${maxMemory}' onmousemove="window.dashboard.showChartTooltip(event, 'memory')" onmouseleave="window.dashboard.hideTooltip()">
                             <svg viewBox="0 0 100 100" preserveAspectRatio="none">
                                 <polyline points="${this.addPadding(memoryPoints)}" stroke="#ffc107"/>
                             </svg>
                         </div>
                         <div class="x-labels chart-labels">
-                            <span style="float: left;">${new Date(memoryRequests[0].timestamp).toLocaleTimeString()}</span>
-                            <span style="float: right;">${new Date(memoryRequests[memoryRequests.length-1].timestamp).toLocaleTimeString()}</span>
+                            ${this.generateTimeLabels()}
                         </div>
                     `;
 
@@ -589,13 +573,7 @@
                 this.charts.requestVolume.innerHTML = '<p class="text-muted text-center mt-5">No request data available</p>';
             }
             
-            // Attach zoom handlers after all charts are created
-            setTimeout(() => {
-                this.attachZoomHandler('response-zoom', 'responseTime');
-                this.attachZoomHandler('volume-zoom', 'requestVolume');
-                this.attachZoomHandler('db-zoom', 'dbPerformance');
-                this.attachZoomHandler('memory-zoom', 'memoryUsage');
-            }, 200);
+
             }
 
             showEmptyCharts() {
@@ -626,7 +604,7 @@
                         <td>${request.db_queries_count}</td>
                         <td>${request.memory_usage ? `${request.memory_usage.toFixed(1)}MB` : '-'}</td>
                         <td>
-                            <button class="btn btn-sm btn-outline-primary" onclick="dashboard.showRequestDetails('${request.id}')">
+                            <button class="btn btn-sm btn-outline-primary" onclick="window.dashboard.showRequestDetails('${request.id}')">
                                 Details
                             </button>
                         </td>
@@ -659,7 +637,7 @@
                         <td>${requestData.db_queries_count}</td>
                         <td>${requestData.memory_usage ? `${requestData.memory_usage.toFixed(1)}MB` : '-'}</td>
                         <td>
-                            <button class="btn btn-sm btn-outline-primary" onclick="dashboard.showRequestDetails('${requestData.profile_id}')">
+                            <button class="btn btn-sm btn-outline-primary" onclick="window.dashboard.showRequestDetails('${requestData.profile_id}')">
                                 Details
                             </button>
                         </td>
@@ -772,6 +750,105 @@
                 window.open(`/__monitor__/export/?time_range=${timeRange}&format=csv`);
             }
 
+            generateTimeLabels() {
+                const timeRange = document.getElementById('time-range').value;
+                const now = new Date();
+                const labels = [];
+                
+                if (timeRange === '1m') {
+                    for (let i = 0; i <= 4; i++) {
+                        const time = new Date(now.getTime() - (60 - i * 15) * 1000);
+                        labels.push(`<span>${time.getSeconds()}s</span>`);
+                    }
+                } else if (timeRange === '5m') {
+                    for (let i = 0; i <= 4; i++) {
+                        const time = new Date(now.getTime() - (5 - i) * 60 * 1000);
+                        labels.push(`<span>${time.getHours().toString().padStart(2,'0')}:${time.getMinutes().toString().padStart(2,'0')}</span>`);
+                    }
+                } else if (timeRange === '30m') {
+                    for (let i = 0; i <= 5; i++) {
+                        const time = new Date(now.getTime() - (30 - i * 6) * 60 * 1000);
+                        labels.push(`<span>${time.getHours().toString().padStart(2,'0')}:${time.getMinutes().toString().padStart(2,'0')}</span>`);
+                    }
+                } else if (timeRange === '1h') {
+                    for (let i = 0; i <= 4; i++) {
+                        const time = new Date(now.getTime() - (60 - i * 15) * 60 * 1000);
+                        labels.push(`<span>${time.getHours().toString().padStart(2,'0')}:${time.getMinutes().toString().padStart(2,'0')}</span>`);
+                    }
+                } else if (timeRange === '3h') {
+                    for (let i = 0; i <= 4; i++) {
+                        const time = new Date(now.getTime() - (3 - i * 0.75) * 60 * 60 * 1000);
+                        labels.push(`<span>${time.getHours().toString().padStart(2,'0')}:${time.getMinutes().toString().padStart(2,'0')}</span>`);
+                    }
+                } else if (timeRange === '6h') {
+                    for (let i = 0; i <= 4; i++) {
+                        const time = new Date(now.getTime() - (6 - i * 1.5) * 60 * 60 * 1000);
+                        labels.push(`<span>${time.getHours().toString().padStart(2,'0')}:${time.getMinutes().toString().padStart(2,'0')}</span>`);
+                    }
+                } else if (timeRange === '24h') {
+                    for (let i = 0; i <= 4; i++) {
+                        const time = new Date(now.getTime() - (24 - i * 6) * 60 * 60 * 1000);
+                        const isToday = time.toDateString() === now.toDateString();
+                        const label = isToday ? `${time.getHours().toString().padStart(2,'0')}:00` : `${time.getDate()}/${time.getMonth()+1} ${time.getHours().toString().padStart(2,'0')}:00`;
+                        labels.push(`<span>${label}</span>`);
+                    }
+                } else if (timeRange === '7d') {
+                    for (let i = 0; i <= 4; i++) {
+                        const time = new Date(now.getTime() - (7 - i * 1.75) * 24 * 60 * 60 * 1000);
+                        labels.push(`<span>${(time.getMonth() + 1).toString().padStart(2,'0')}/${time.getDate().toString().padStart(2,'0')}</span>`);
+                    }
+                }
+                
+                return labels.join('');
+            }
+
+            getTimeRangeMs() {
+                const timeRange = document.getElementById('time-range').value;
+                if (timeRange === '1m') return 60 * 1000;
+                else if (timeRange === '5m') return 5 * 60 * 1000;
+                else if (timeRange === '30m') return 30 * 60 * 1000;
+                else if (timeRange === '1h') return 60 * 60 * 1000;
+                else if (timeRange === '3h') return 3 * 60 * 60 * 1000;
+                else if (timeRange === '6h') return 6 * 60 * 60 * 1000;
+                else if (timeRange === '24h') return 24 * 60 * 60 * 1000;
+                else if (timeRange === '7d') return 7 * 24 * 60 * 60 * 1000;
+            }
+
+            mapDataToTimeRange(requests, field, maxValue) {
+                const now = new Date();
+                const rangeMs = this.getTimeRangeMs();
+                const startTime = now.getTime() - rangeMs;
+                
+                const buckets = [];
+                const bucketData = [];
+                const bucketCount = 20;
+                const bucketSize = rangeMs / bucketCount;
+                
+                for (let i = 0; i <= bucketCount; i++) {
+                    const bucketTime = startTime + (i * bucketSize);
+                    const x = (i / bucketCount) * 100;
+                    
+                    const bucketRequests = requests.filter(req => {
+                        const reqTime = new Date(req.timestamp).getTime();
+                        return reqTime >= bucketTime && reqTime < bucketTime + bucketSize;
+                    });
+                    
+                    if (bucketRequests.length > 0) {
+                        const avgValue = bucketRequests.reduce((sum, req) => sum + (req[field] || 0), 0) / bucketRequests.length;
+                        const y = maxValue > 0 ? Math.max(5, 100 - (avgValue / maxValue) * 100) : 50;
+                        buckets.push(`${x},${y}`);
+                        bucketData.push({ x, y, value: avgValue, hasData: true });
+                    }
+                }
+                
+                // Store bucket data for tooltips with chart type
+                if (!this.chartBucketData) this.chartBucketData = {};
+                this.chartBucketData[field] = bucketData;
+                return buckets.join(' ');
+            }
+
+
+
             addPadding(points) {
                 if (!points) return '';
                 return points.split(' ').map(point => {
@@ -782,23 +859,15 @@
                 }).join(' ');
             }
 
-            attachZoomHandler(sliderId, chartName) {
-                const slider = document.getElementById(sliderId);
-                if (slider) {
-                    slider.addEventListener('input', (e) => {
-                        this.zoomChart(chartName, e.target.value);
-                    });
-                }
-            }
 
-            showTooltip(event, type) {
-                const element = event.currentTarget;
-                const data = JSON.parse(element.dataset.requests);
-                
-                const rect = element.getBoundingClientRect();
-                const x = ((event.clientX - rect.left) / rect.width) * 100;
-                const index = Math.round((x / 100) * (Array.isArray(data) ? data.length - 1 : Object.keys(data).length - 1));
-                
+
+            showChartTooltip(event, type) {
+                const rect = event.currentTarget.getBoundingClientRect();
+                // Get mouse X position as a percentage within the .chart-line div
+                const cursorXPercent = ((event.clientX - rect.left) / rect.width) * 100;
+
+                const logicalX = (cursorXPercent - 10) / 0.8;
+
                 let tooltip = document.getElementById('chart-tooltip');
                 if (!tooltip) {
                     tooltip = document.createElement('div');
@@ -806,26 +875,58 @@
                     tooltip.className = 'tooltip';
                     document.body.appendChild(tooltip);
                 }
-                
-                let content = '';
-                if (type === 'response' && data[index]) {
-                    content = `${data[index].duration.toFixed(3)}s`;
-                } else if (type === 'db' && data[index]) {
-                    content = `${data[index].db_queries_count} queries`;
-                } else if (type === 'memory' && data[index]) {
-                    content = `${data[index].memory_usage.toFixed(1)}MB`;
-                } else if (type === 'volume') {
-                    const keys = Object.keys(data);
-                    const hour = keys[index];
-                    if (hour) content = `Hour ${hour}: ${data[hour]} requests`;
+
+                let content = 'No data';
+
+                // If cursor is outside the logical chart area, hide tooltip.
+                if (logicalX < 0 || logicalX > 100) {
+                    this.hideTooltip();
+                    return;
                 }
-                
-                if (content) {
-                    tooltip.textContent = content;
-                    tooltip.style.left = event.pageX + 10 + 'px';
-                    tooltip.style.top = event.pageY - 30 + 'px';
-                    tooltip.style.display = 'block';
+
+                if (type === 'volume') {
+                    // Volume data is a dense array of 21 buckets.
+                    // We can calculate the index directly.
+                    const bucketIndex = Math.min(Math.max(Math.round(logicalX / 5), 0), 20); // logicalX is 0-100, 20 buckets, so each is 5 units wide.
+                    if (this.currentVolumeData && this.currentVolumeData[bucketIndex]) {
+                        const data = this.currentVolumeData[bucketIndex];
+                        if (data.hasData) {
+                            content = `${data.count} requests`;
+                        }
+                    }
+                } else {
+                    // Other charts have sparse data (only buckets with requests are stored).
+                    const fieldMap = { 'response': 'duration', 'db': 'db_queries_count', 'memory': 'memory_usage' };
+                    const field = fieldMap[type];
+                    if (this.chartBucketData && this.chartBucketData[field]) {
+                        const bucketsWithData = this.chartBucketData[field];
+
+                        if (bucketsWithData.length > 0) {
+                            // Find the data point (bucket) with the x-coordinate closest to the cursor's logical x.
+                            const closestBucket = bucketsWithData.reduce((prev, curr) => {
+                                return (Math.abs(curr.x - logicalX) < Math.abs(prev.x - logicalX) ? curr : prev);
+                            });
+
+                            // Only show the tooltip if the cursor is "close enough" to that data point.
+                            // A bucket is 5 units wide on the logical scale, so half of that is 2.5.
+                            if (closestBucket && Math.abs(closestBucket.x - logicalX) < 2.5) {
+                                const val = closestBucket.value;
+                                if (type === 'response') {
+                                    content = `${val.toFixed(3)}s`;
+                                } else if (type === 'db') {
+                                    content = `${Math.round(val)} queries`;
+                                } else if (type === 'memory') {
+                                    content = `${val.toFixed(1)}MB`;
+                                }
+                            }
+                        }
+                    }
                 }
+
+                tooltip.textContent = content;
+                tooltip.style.left = event.pageX + 10 + 'px';
+                tooltip.style.top = event.pageY - 30 + 'px';
+                tooltip.style.display = 'block';
             }
 
             hideTooltip() {
@@ -835,23 +936,7 @@
                 }
             }
 
-            zoomChart(chartName, zoomLevel) {
-                const chart = this.charts[chartName];
-                if (!chart) {
-                    console.log('Chart not found:', chartName);
-                    return;
-                }
-                
-                const chartLine = chart.querySelector('.chart-line');
-                if (chartLine) {
-                    const scale = parseFloat(zoomLevel);
-                    chartLine.style.transform = `scale(${scale})`;
-                    chartLine.style.transformOrigin = 'center';
-                    console.log(`Zooming ${chartName} to ${scale}x`);
-                } else {
-                    console.log('Chart line not found for:', chartName);
-                }
-            }
+
 
             formatTimestamp(timestamp) {
                 const date = new Date(timestamp);
