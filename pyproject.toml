@@ -47,7 +47,7 @@ requires-python = ">=3.8"
 [project.urls]
 Homepage = "https://github.com/surendra-ksr/django-profileboard"
 Repository = "https://github.com/surendra-ksr/django-profileboard"
-Documentation  = "https://surendra-ksr.github.io/django-profileboard/"
+Documentation  = "https://django-profileboard.readthedocs.io"
 "Bug Reports" = "https://github.com/surendra-ksr/django-profileboard/issues"
 
 [tool.hatch.version]
