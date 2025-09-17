@@ -80,6 +80,11 @@ class SQLQueryCapture(logging.Handler):
 
         try:
             message = record.getMessage()
+            
+            # Skip profiler's own queries to prevent recursion
+            if 'django_profileboard' in message:
+                return
+                
             match = self.sql_regex.match(message)
 
             if match:
@@ -87,21 +92,31 @@ class SQLQueryCapture(logging.Handler):
                 sql = match.group(2).strip()
                 params_str = match.group(3)
 
-                # Parse parameters safely
+                # Parse parameters safely and prevent escaping issues
                 try:
-                    params = eval(params_str) if params_str != 'None' else {}
+                    if params_str == 'None':
+                        params = {}
+                    else:
+                        import ast
+                        params = ast.literal_eval(params_str)
+                        # Sanitize params to prevent recursive escaping
+                        if isinstance(params, (list, tuple)):
+                            params = [str(p)[:100] if isinstance(p, str) else p for p in params]
+                        elif isinstance(params, dict):
+                            params = {k: str(v)[:100] if isinstance(v, str) else v for k, v in params.items()}
                 except:
-                    params = params_str
+                    # If parsing fails, store as truncated string to prevent escaping
+                    params = str(params_str)[:100]
 
                 # Get stack trace (excluding Django internals)
                 stack_trace = self._get_clean_stack_trace()
 
-                # Add to collector
+                # Add to collector with length limits
                 self.collector.add_query(
-                    sql=sql,
+                    sql=sql[:1000],
                     params=params,
                     duration=duration,
-                    stack_trace=stack_trace
+                    stack_trace=stack_trace[:2000]  # Limit stack trace length
                 )
 
         except Exception as e:
@@ -110,18 +125,24 @@ class SQLQueryCapture(logging.Handler):
 
     def _get_clean_stack_trace(self) -> str:
         """Get stack trace excluding Django internals"""
-        stack = traceback.extract_stack()
+        try:
+            stack = traceback.extract_stack()
 
-        # Filter out Django and profiler internals
-        filtered_stack = []
-        for frame in stack:
-            if not any(exclude in frame.filename for exclude in [
-                'django/db/', 'django_profileboard/', 'logging/'
-            ]):
-                filtered_stack.append(frame)
+            # Filter out Django and profiler internals
+            filtered_stack = []
+            for frame in stack:
+                if not any(exclude in frame.filename for exclude in [
+                    'django/db/', 'django_profileboard/', 'logging/'
+                ]):
+                    filtered_stack.append(frame)
 
-        # Return last few frames
-        return ''.join(traceback.format_list(filtered_stack[-5:]))
+            # Return last few frames, sanitized to prevent escaping issues
+            trace = ''.join(traceback.format_list(filtered_stack[-5:]))
+            # Remove excessive backslashes and limit length
+            trace = trace.replace('\\\\', '\\')
+            return trace[:2000]
+        except Exception:
+            return "Stack trace unavailable"
 
 
 class MemoryProfiler:

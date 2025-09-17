@@ -5,6 +5,16 @@ import json
 import uuid
 
 
+class SafeJSONEncoder(json.JSONEncoder):
+    """JSON encoder that handles problematic data types safely"""
+    def default(self, obj):
+        if isinstance(obj, (bytes, bytearray)):
+            return obj.decode('utf-8', errors='replace')
+        if hasattr(obj, '__str__'):
+            return str(obj)[:200]  # Limit string length
+        return super().default(obj)
+
+
 class RequestProfile(models.Model):
     """Core model for storing request performance data"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -47,9 +57,9 @@ class DatabaseQuery(models.Model):
     request_profile = models.ForeignKey(RequestProfile, related_name='database_queries', on_delete=models.CASCADE)
 
     sql = models.TextField()
-    params = models.JSONField(default=dict)
+    params = models.JSONField(default=dict, encoder=SafeJSONEncoder)  # Use safe JSON encoder
     duration = models.FloatField(help_text="Query duration in seconds")
-    stack_trace = models.TextField(blank=True)
+    stack_trace = models.TextField(blank=True, max_length=5000)  # Limit length
 
     # Query metadata
     is_duplicate = models.BooleanField(default=False)

@@ -1,3 +1,4 @@
+from django.db.models import Q
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
@@ -53,10 +54,10 @@ class ProfileDashboardConsumer(AsyncWebsocketConsumer):
             elif message_type == 'toggle_profiler':
                 await self._toggle_profiler(data.get('enabled', False))
 
-        except json.JSONDecodeError:
+        except Exception as e:
             await self.send(text_data=json.dumps({
                 'type': 'error',
-                'message': 'Invalid JSON'
+                'message': f'Error processing message: {str(e)}'
             }))
 
     async def profile_update(self, event):
@@ -78,14 +79,22 @@ class ProfileDashboardConsumer(AsyncWebsocketConsumer):
 
         # Get recent request data
         recent_requests = await database_sync_to_async(
-            lambda: list(RequestProfile.objects.select_related('user')
-            .prefetch_related('database_queries')
-            .order_by('-timestamp')[:50]
-            .values(
-                'id', 'timestamp', 'url', 'view_name', 'method',
-                'duration', 'memory_usage', 'db_queries_count',
-                'db_queries_time', 'status_code', 'is_error'
-            ))
+            lambda: [
+                {
+                    'id': str(req.id),
+                    'timestamp': req.timestamp.isoformat(),
+                    'url': req.url,
+                    'view_name': req.view_name,
+                    'method': req.method,
+                    'duration': req.duration,
+                    'memory_usage': req.memory_usage or 0,
+                    'db_queries_count': req.db_queries_count,
+                    'db_queries_time': req.db_queries_time,
+                    'status_code': req.status_code,
+                    'is_error': req.is_error
+                }
+                for req in RequestProfile.objects.order_by('-timestamp')[:50]
+            ]
         )()
 
         await self.send(text_data=json.dumps({
@@ -105,7 +114,13 @@ class ProfileDashboardConsumer(AsyncWebsocketConsumer):
 
         # Time filtering
         time_range = params.get('time_range', '1h')
-        if time_range == '1h':
+        if time_range == '1m':
+            since = timezone.now() - timedelta(minutes=1)
+        elif time_range == '5m':
+            since = timezone.now() - timedelta(minutes=5)
+        elif time_range == '30m':
+            since = timezone.now() - timedelta(minutes=30)
+        elif time_range == '1h':
             since = timezone.now() - timedelta(hours=1)
         elif time_range == '24h':
             since = timezone.now() - timedelta(days=1)
@@ -129,16 +144,28 @@ class ProfileDashboardConsumer(AsyncWebsocketConsumer):
                 queryset = queryset.filter(duration__gt=threshold)
 
         requests = await database_sync_to_async(
-            lambda: list(queryset.order_by('-timestamp')[:100].values(
-                'id', 'timestamp', 'url', 'view_name', 'method',
-                'duration', 'memory_usage', 'db_queries_count',
-                'db_queries_time', 'status_code', 'is_error'
-            ))
+            lambda: [
+                {
+                    'id': str(req.id),
+                    'timestamp': req.timestamp.isoformat(),
+                    'url': req.url,
+                    'view_name': req.view_name,
+                    'method': req.method,
+                    'duration': req.duration,
+                    'memory_usage': req.memory_usage or 0,
+                    'db_queries_count': req.db_queries_count,
+                    'db_queries_time': req.db_queries_time,
+                    'status_code': req.status_code,
+                    'is_error': req.is_error
+                }
+                for req in queryset.order_by('-timestamp')[:100]
+            ]
         )()
 
         await self.send(text_data=json.dumps({
             'type': 'request_history',
-            'requests': requests
+            'requests': requests,
+            'stats': await self._get_dashboard_stats_for_range(since)
         }))
 
     async def _send_request_details(self, request_id):
@@ -147,12 +174,13 @@ class ProfileDashboardConsumer(AsyncWebsocketConsumer):
 
         try:
             request_data = await database_sync_to_async(
-                lambda: RequestProfile.objects.select_related('memory_profile')
-                .prefetch_related('database_queries', 'api_calls')
-                .get(id=request_id)
+                lambda: RequestProfile.objects.prefetch_related('database_queries').get(id=request_id)
             )()
 
-            # Convert to dictionary for JSON serialization
+            queries = await database_sync_to_async(
+                lambda: list(request_data.database_queries.values('sql', 'duration', 'params')[:10])
+            )()
+
             details = {
                 'id': str(request_data.id),
                 'timestamp': request_data.timestamp.isoformat(),
@@ -160,27 +188,11 @@ class ProfileDashboardConsumer(AsyncWebsocketConsumer):
                 'view_name': request_data.view_name,
                 'method': request_data.method,
                 'duration': request_data.duration,
-                'memory_usage': request_data.memory_usage,
+                'memory_usage': request_data.memory_usage or 0,
                 'status_code': request_data.status_code,
                 'is_error': request_data.is_error,
-                'database_queries': [
-                    {
-                        'sql': query.sql,
-                        'duration': query.duration,
-                        'params': query.params,
-                        'stack_trace': query.stack_trace,
-                    }
-                    for query in request_data.database_queries.all()
-                ],
-                'api_calls': [
-                    {
-                        'url': call.url,
-                        'method': call.method,
-                        'duration': call.duration,
-                        'status_code': call.status_code,
-                    }
-                    for call in request_data.api_calls.all()
-                ]
+                'database_queries': queries,
+                'api_calls': []
             }
 
             await self.send(text_data=json.dumps({
@@ -188,10 +200,10 @@ class ProfileDashboardConsumer(AsyncWebsocketConsumer):
                 'details': details
             }))
 
-        except RequestProfile.DoesNotExist:
+        except Exception as e:
             await self.send(text_data=json.dumps({
                 'type': 'error',
-                'message': 'Request not found'
+                'message': f'Error loading request details: {str(e)}'
             }))
 
     async def _toggle_profiler(self, enabled):
@@ -226,7 +238,24 @@ class ProfileDashboardConsumer(AsyncWebsocketConsumer):
                 avg_duration=Avg('duration'),
                 avg_db_queries=Avg('db_queries_count'),
                 total_db_time=Sum('db_queries_time'),
-                error_count=Count('id', filter=models.Q(is_error=True))
+                error_count=Count('id', filter=Q(is_error=True))
+            )
+        )()
+
+        return stats or {}
+
+    async def _get_dashboard_stats_for_range(self, since):
+        """Get dashboard statistics for specific time range"""
+        from .models import RequestProfile
+        from django.db.models import Avg, Count, Sum
+
+        stats = await database_sync_to_async(
+            lambda: RequestProfile.objects.filter(timestamp__gte=since).aggregate(
+                total_requests=Count('id'),
+                avg_duration=Avg('duration'),
+                avg_db_queries=Avg('db_queries_count'),
+                total_db_time=Sum('db_queries_time'),
+                error_count=Count('id', filter=Q(is_error=True))
             )
         )()
 

@@ -5,9 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ProfileBoard - Django Performance Dashboard</title>
 
-    <!-- Highcharts -->
-    <script src="https://code.highcharts.com/highcharts.js"></script>
-    <script src="https://code.highcharts.com/modules/exporting.js"></script>
+    <!-- Simple CSS Charts -->
 
     <!-- Bootstrap for styling -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -37,6 +35,91 @@
             padding: 20px;
             margin-bottom: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            height: 300px;
+        }
+        
+        .simple-chart {
+            height: 200px;
+            position: relative;
+            padding: 10px;
+            overflow: hidden;
+        }
+        
+        .chart-line {
+            position: absolute;
+            bottom: 30px;
+            left: 40px;
+            right: 20px;
+            height: 140px;
+            border: 1px solid #e0e0e0;
+            background: #f9f9f9;
+        }
+        
+        .chart-labels {
+            position: absolute;
+            font-size: 10px;
+            color: #666;
+        }
+        
+        .y-labels {
+            left: 5px;
+            bottom: 30px;
+            height: 140px;
+        }
+        
+        .x-labels {
+            bottom: 10px;
+            left: 40px;
+            right: 20px;
+            height: 15px;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 5px;
+            border-radius: 3px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 100;
+        }
+        
+        .chart-line svg {
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+        
+        .chart-controls {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            z-index: 10;
+        }
+        
+        .zoom-slider {
+            width: 100px;
+            margin: 5px;
+        }
+        
+        .chart-line polyline {
+            fill: none;
+            stroke-width: 2;
+            vector-effect: non-scaling-stroke;
+        }
+        
+        .chart-point {
+            fill: #667eea;
+            stroke: #764ba2;
+            stroke-width: 1;
+            cursor: pointer;
+            r: 3;
+        }
+        
+        .chart-point:hover {
+            fill: #764ba2;
+            r: 5;
         }
 
         .request-table {
@@ -93,14 +176,14 @@
                     </div>
                     <div class="col-md-6">
                         <div class="input-group">
-                            <select class="form-select" id="time-range">
-                                <option value="1h">Last Hour</option>
+                            <select class="form-select" id="time-range" onchange="updateTimeRange()">
+                                <option value="1m">Last 1 Minute</option>
+                                <option value="5m">Last 5 Minutes</option>
+                                <option value="30m">Last 30 Minutes</option>
+                                <option value="1h" selected>Last Hour</option>
                                 <option value="24h">Last 24 Hours</option>
                                 <option value="7d">Last 7 Days</option>
                             </select>
-                            <button class="btn btn-outline-secondary" onclick="updateTimeRange()">
-                                Update
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -138,13 +221,19 @@
                     <div class="col-md-6">
                         <div class="chart-container">
                             <h5>Response Time Over Time</h5>
-                            <div id="response-time-chart"></div>
+                            <div class="chart-controls">
+                                <input type="range" class="form-range zoom-slider" min="1" max="10" value="1" id="response-zoom">
+                            </div>
+                            <div id="response-time-chart" class="simple-chart"></div>
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="chart-container">
                             <h5>Request Volume</h5>
-                            <div id="request-volume-chart"></div>
+                            <div class="chart-controls">
+                                <input type="range" class="form-range zoom-slider" min="1" max="10" value="1" id="volume-zoom">
+                            </div>
+                            <div id="request-volume-chart" class="simple-chart"></div>
                         </div>
                     </div>
                 </div>
@@ -153,13 +242,19 @@
                     <div class="col-md-6">
                         <div class="chart-container">
                             <h5>Database Performance</h5>
-                            <div id="db-performance-chart"></div>
+                            <div class="chart-controls">
+                                <input type="range" class="form-range zoom-slider" min="1" max="10" value="1" id="db-zoom">
+                            </div>
+                            <div id="db-performance-chart" class="simple-chart"></div>
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="chart-container">
                             <h5>Memory Usage</h5>
-                            <div id="memory-usage-chart"></div>
+                            <div class="chart-controls">
+                                <input type="range" class="form-range zoom-slider" min="1" max="10" value="1" id="memory-zoom">
+                            </div>
+                            <div id="memory-usage-chart" class="simple-chart"></div>
                         </div>
                     </div>
                 </div>
@@ -193,12 +288,12 @@
     </div>
 
     <!-- Request Details Modal -->
-    <div class="modal fade" id="requestDetailsModal" tabindex="-1">
+    <div class="modal fade" id="requestDetailsModal" tabindex="-1" aria-labelledby="requestDetailsModalLabel">
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Request Details</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="requestDetailsModalLabel">Request Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body" id="request-details-body">
                     <!-- Dynamic content -->
@@ -215,11 +310,19 @@
                 this.websocket = null;
                 this.charts = {};
                 this.isProfilerEnabled = false;
-                this.initWebSocket();
                 this.initCharts();
+                this.initWebSocket();
             }
 
             initWebSocket() {
+                // Skip WebSocket for development
+                if (!{{ websocket_url|yesno:"true,false" }}) {
+                    document.getElementById('connection-status').textContent = 'Static Mode';
+                    document.getElementById('connection-status').className = 'connected';
+                    this.loadInitialData();
+                    return;
+                }
+                
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const wsUrl = `${protocol}//${window.location.host}/ws/profileboard/`;
 
@@ -232,8 +335,12 @@
                 };
 
                 this.websocket.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    this.handleWebSocketMessage(data);
+                    try {
+                        const data = JSON.parse(event.data);
+                        this.handleWebSocketMessage(data);
+                    } catch (error) {
+                        console.error('Error parsing WebSocket message:', error, event.data);
+                    }
                 };
 
                 this.websocket.onclose = () => {
@@ -247,91 +354,75 @@
 
                 this.websocket.onerror = (error) => {
                     console.error('WebSocket error:', error);
+                    document.getElementById('connection-status').textContent = 'Connection Error';
+                    document.getElementById('connection-status').className = 'disconnected';
                 };
+            }
+            
+            loadInitialData() {
+                // Load initial data from context
+                const stats = JSON.parse('{{ dashboard_stats|safe }}');
+                this.updateDashboard({ stats: stats, recent_requests: stats.recent_requests });
+                
+                // Set profiler status based on PROFILEBOARD_ENABLED setting
+                this.isProfilerEnabled = {{ profiler_enabled|yesno:"true,false" }};
+                this.updateProfilerButton();
+                
+                // Set time range from URL parameter
+                const urlParams = new URLSearchParams(window.location.search);
+                const timeRange = urlParams.get('time_range') || '1h';
+                document.getElementById('time-range').value = timeRange;
+                
+                // Refresh every 30 seconds
+                setInterval(() => {
+                    window.location.reload();
+                }, 30000);
             }
 
             handleWebSocketMessage(data) {
-                switch (data.type) {
-                    case 'initial_data':
-                        this.updateDashboard(data);
-                        break;
-                    case 'profile_update':
-                        this.addNewRequest(data.data);
-                        break;
-                    case 'request_history':
-                        this.updateRequestsTable(data.requests);
-                        break;
-                    case 'request_details':
-                        this.showRequestDetails(data.details);
-                        break;
-                    case 'profiler_toggled':
-                        this.isProfilerEnabled = data.enabled;
-                        this.updateProfilerButton();
-                        break;
+                try {
+                    switch (data.type) {
+                        case 'initial_data':
+                            this.updateDashboard(data);
+                            break;
+                        case 'profile_update':
+                            if (data.data) {
+                                this.addNewRequest(data.data);
+                            }
+                            break;
+                        case 'request_history':
+                            if (data.requests) {
+                                this.updateDashboard({ stats: data.stats || {}, recent_requests: data.requests });
+                            }
+                            break;
+                        case 'request_details':
+                            if (data.details) {
+                                this.displayRequestDetails(data.details);
+                            }
+                            break;
+                        case 'profiler_toggled':
+                            this.isProfilerEnabled = data.enabled;
+                            this.updateProfilerButton();
+                            break;
+                        case 'error':
+                            console.error('WebSocket error:', data.message);
+                            break;
+                        default:
+                            console.warn('Unknown message type:', data.type);
+                    }
+                } catch (error) {
+                    console.error('Error handling WebSocket message:', error, data);
                 }
             }
 
             initCharts() {
-                // Response Time Chart
-                this.charts.responseTime = Highcharts.chart('response-time-chart', {
-                    chart: { type: 'line', height: 300 },
-                    title: { text: null },
-                    xAxis: { type: 'datetime' },
-                    yAxis: { title: { text: 'Response Time (s)' } },
-                    series: [{
-                        name: 'Response Time',
-                        data: [],
-                        color: '#667eea'
-                    }],
-                    credits: { enabled: false },
-                    legend: { enabled: false }
-                });
-
-                // Request Volume Chart
-                this.charts.requestVolume = Highcharts.chart('request-volume-chart', {
-                    chart: { type: 'column', height: 300 },
-                    title: { text: null },
-                    xAxis: { type: 'datetime' },
-                    yAxis: { title: { text: 'Requests/min' } },
-                    series: [{
-                        name: 'Requests',
-                        data: [],
-                        color: '#764ba2'
-                    }],
-                    credits: { enabled: false },
-                    legend: { enabled: false }
-                });
-
-                // Database Performance Chart
-                this.charts.dbPerformance = Highcharts.chart('db-performance-chart', {
-                    chart: { type: 'scatter', height: 300 },
-                    title: { text: null },
-                    xAxis: { title: { text: 'DB Queries Count' } },
-                    yAxis: { title: { text: 'DB Query Time (s)' } },
-                    series: [{
-                        name: 'Requests',
-                        data: [],
-                        color: '#28a745'
-                    }],
-                    credits: { enabled: false },
-                    legend: { enabled: false }
-                });
-
-                // Memory Usage Chart
-                this.charts.memoryUsage = Highcharts.chart('memory-usage-chart', {
-                    chart: { type: 'area', height: 300 },
-                    title: { text: null },
-                    xAxis: { type: 'datetime' },
-                    yAxis: { title: { text: 'Memory Usage (MB)' } },
-                    series: [{
-                        name: 'Memory',
-                        data: [],
-                        color: '#ffc107',
-                        fillOpacity: 0.3
-                    }],
-                    credits: { enabled: false },
-                    legend: { enabled: false }
-                });
+                // Simple CSS-based charts
+                this.charts = {
+                    responseTime: document.getElementById('response-time-chart'),
+                    requestVolume: document.getElementById('request-volume-chart'),
+                    dbPerformance: document.getElementById('db-performance-chart'),
+                    memoryUsage: document.getElementById('memory-usage-chart')
+                };
             }
 
             updateDashboard(data) {
@@ -353,33 +444,152 @@
             }
 
             updateChartsWithData(requests) {
-                if (!requests) return;
+                if (!requests || !Array.isArray(requests) || !this.charts.responseTime) {
+                    this.showEmptyCharts();
+                    return;
+                }
 
-                // Response time data
-                const responseTimeData = requests.map(req => [
-                    new Date(req.timestamp).getTime(),
-                    req.duration
-                ]).sort((a, b) => a[0] - b[0]);
+                // Response time line chart
+                const recentRequests = requests.slice(-20);
+                if (recentRequests.length === 0) {
+                    this.showEmptyCharts();
+                    return;
+                }
+                
+                const durations = recentRequests.map(r => r.duration || 0).filter(d => d > 0);
+                if (durations.length === 0) {
+                    this.showEmptyCharts();
+                    return;
+                }
+                
+                const maxDuration = Math.max(...durations);
+                const points = recentRequests.map((req, i) => {
+                    const x = recentRequests.length > 1 ? (i / (recentRequests.length - 1)) * 100 : 50;
+                    const y = maxDuration > 0 ? 100 - ((req.duration || 0) / maxDuration) * 100 : 50;
+                    return `${x},${y}`;
+                }).join(' ');
+                
+                this.charts.responseTime.innerHTML = `
+                    <div class="y-labels chart-labels">
+                        <div style="position: absolute; top: 0;">${maxDuration.toFixed(2)}s</div>
+                        <div style="position: absolute; top: 50%; transform: translateY(-50%);">${(maxDuration/2).toFixed(2)}s</div>
+                        <div style="position: absolute; bottom: 0;">0s</div>
+                    </div>
+                    <div class="chart-line" onmousemove="dashboard.showTooltip(event, 'response', ${JSON.stringify(recentRequests)}, ${maxDuration})" onmouseleave="dashboard.hideTooltip()">
+                        <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                            <polyline points="${this.addPadding(points)}" stroke="#667eea"/>
+                        </svg>
+                    </div>
+                    <div class="x-labels chart-labels">
+                        <span style="float: left;">Start</span>
+                        <span style="float: right;">Now</span>
+                    </div>
+                `;
+                this.attachZoomHandler('response-zoom', 'responseTime');
 
-                this.charts.responseTime.series[0].setData(responseTimeData);
+                // Request volume line chart
+                const hourCounts = {};
+                requests.forEach(req => {
+                    if (req.timestamp) {
+                        const hour = new Date(req.timestamp).getHours();
+                        hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+                    }
+                });
+                
+                const hours = Object.keys(hourCounts).sort();
+                if (hours.length > 0) {
+                    const maxCount = Math.max(...Object.values(hourCounts));
+                    const volumePoints = hours.map((hour, i) => {
+                        const x = hours.length > 1 ? (i / (hours.length - 1)) * 100 : 50;
+                        const y = maxCount > 0 ? 100 - (hourCounts[hour] / maxCount) * 100 : 50;
+                        return `${x},${y}`;
+                    }).join(' ');
+                
+                    this.charts.requestVolume.innerHTML = `
+                        <div class="y-labels chart-labels">
+                            <div style="position: absolute; top: 0;">${maxCount}</div>
+                            <div style="position: absolute; top: 50%; transform: translateY(-50%);">${Math.round(maxCount/2)}</div>
+                            <div style="position: absolute; bottom: 0;">0</div>
+                        </div>
+                        <div class="chart-line" onmousemove="dashboard.showTooltip(event, 'volume', ${JSON.stringify(hourCounts)}, ${maxCount})" onmouseleave="dashboard.hideTooltip()">
+                            <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                                <polyline points="${this.addPadding(volumePoints)}" stroke="#764ba2"/>
+                            </svg>
+                        </div>
+                        <div class="x-labels chart-labels">
+                            <span style="float: left;">Hours</span>
+                        </div>
+                    `;
+                    this.attachZoomHandler('volume-zoom', 'requestVolume');
+                
+                // DB Performance line chart
+                const queryCounts = recentRequests.map(r => r.db_queries_count || 0);
+                const maxQueries = Math.max(...queryCounts);
+                const dbPoints = recentRequests.map((req, i) => {
+                    const x = recentRequests.length > 1 ? (i / (recentRequests.length - 1)) * 100 : 50;
+                    const y = maxQueries > 0 ? 100 - ((req.db_queries_count || 0) / maxQueries) * 100 : 50;
+                    return `${x},${y}`;
+                }).join(' ');
+                
+                this.charts.dbPerformance.innerHTML = `
+                    <div class="y-labels chart-labels">
+                        <div style="position: absolute; top: 0;">${maxQueries}</div>
+                        <div style="position: absolute; top: 50%; transform: translateY(-50%);">${Math.round(maxQueries/2)}</div>
+                        <div style="position: absolute; bottom: 0;">0</div>
+                    </div>
+                    <div class="chart-line" onmousemove="dashboard.showTooltip(event, 'db', ${JSON.stringify(recentRequests)}, ${maxQueries})" onmouseleave="dashboard.hideTooltip()">
+                        <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                            <polyline points="${this.addPadding(dbPoints)}" stroke="#28a745"/>
+                        </svg>
+                    </div>
+                    <div class="x-labels chart-labels">
+                        <span style="float: left;">Requests</span>
+                    </div>
+                `;
+                this.attachZoomHandler('db-zoom', 'dbPerformance');
+                
+                // Memory Usage line chart
+                const memoryRequests = requests.filter(r => r.memory_usage && r.memory_usage > 0).slice(-20);
+                if (memoryRequests.length > 0) {
+                    const memoryValues = memoryRequests.map(r => r.memory_usage || 0);
+                    const maxMemory = Math.max(...memoryValues);
+                    const memoryPoints = memoryRequests.map((req, i) => {
+                        const x = memoryRequests.length > 1 ? (i / (memoryRequests.length - 1)) * 100 : 50;
+                        const y = maxMemory > 0 ? 100 - ((req.memory_usage || 0) / maxMemory) * 100 : 50;
+                        return `${x},${y}`;
+                    }).join(' ');
+                    
+                    this.charts.memoryUsage.innerHTML = `
+                        <div class="y-labels chart-labels">
+                            <div style="position: absolute; top: 0;">${maxMemory.toFixed(1)}MB</div>
+                            <div style="position: absolute; top: 50%; transform: translateY(-50%);">${(maxMemory/2).toFixed(1)}MB</div>
+                            <div style="position: absolute; bottom: 0;">0MB</div>
+                        </div>
+                        <div class="chart-line" onmousemove="dashboard.showTooltip(event, 'memory', ${JSON.stringify(memoryRequests)}, ${maxMemory})" onmouseleave="dashboard.hideTooltip()">
+                            <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                                <polyline points="${this.addPadding(memoryPoints)}" stroke="#ffc107"/>
+                            </svg>
+                        </div>
+                        <div class="x-labels chart-labels">
+                            <span style="float: left;">Memory Usage</span>
+                        </div>
+                    `;
+                    this.attachZoomHandler('memory-zoom', 'memoryUsage');
+                } else {
+                    this.charts.memoryUsage.innerHTML = '<p class="text-muted text-center mt-5">No memory data available</p>';
+                }
+            } else {
+                // Handle case where volume chart data is empty
+                this.charts.requestVolume.innerHTML = '<p class="text-muted text-center mt-5">No request data available</p>';
+            }
+            }
 
-                // Memory usage data
-                const memoryData = requests
-                    .filter(req => req.memory_usage)
-                    .map(req => [
-                        new Date(req.timestamp).getTime(),
-                        req.memory_usage
-                    ]).sort((a, b) => a[0] - b[0]);
-
-                this.charts.memoryUsage.series[0].setData(memoryData);
-
-                // DB performance scatter
-                const dbData = requests.map(req => [
-                    req.db_queries_count,
-                    req.db_queries_time
-                ]);
-
-                this.charts.dbPerformance.series[0].setData(dbData);
+            showEmptyCharts() {
+                const emptyMessage = '<p class="text-muted text-center mt-5">No data available for selected time range</p>';
+                this.charts.responseTime.innerHTML = emptyMessage;
+                this.charts.requestVolume.innerHTML = emptyMessage;
+                this.charts.dbPerformance.innerHTML = emptyMessage;
+                this.charts.memoryUsage.innerHTML = emptyMessage;
             }
 
             updateRequestsTable(requests) {
@@ -413,25 +623,9 @@
             }
 
             addNewRequest(requestData) {
-                // Add new point to response time chart
-                this.charts.responseTime.series[0].addPoint([
-                    new Date(requestData.timestamp).getTime(),
-                    requestData.duration
-                ], true, this.charts.responseTime.series[0].data.length > 50);
-
-                // Add to memory chart if data available
-                if (requestData.memory_usage) {
-                    this.charts.memoryUsage.series[0].addPoint([
-                        new Date(requestData.timestamp).getTime(),
-                        requestData.memory_usage
-                    ], true, this.charts.memoryUsage.series[0].data.length > 50);
-                }
-
-                // Update DB performance chart
-                this.charts.dbPerformance.series[0].addPoint([
-                    requestData.db_queries_count,
-                    requestData.db_queries_time
-                ], true, this.charts.dbPerformance.series[0].data.length > 100);
+                // For simple CSS charts, we'll just trigger a refresh of recent data
+                // In a real implementation, you'd update the chart data structures
+                console.log('New request received:', requestData);
 
                 // Add to requests table (prepend to top)
                 const tbody = document.getElementById('requests-tbody');
@@ -467,10 +661,12 @@
             }
 
             showRequestDetails(requestId) {
-                this.websocket.send(JSON.stringify({
-                    type: 'request_details',
-                    request_id: requestId
-                }));
+                if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                    this.websocket.send(JSON.stringify({
+                        type: 'request_details',
+                        request_id: requestId
+                    }));
+                }
             }
 
             displayRequestDetails(details) {
@@ -537,6 +733,13 @@
             }
 
             toggleProfiler() {
+                if (!this.websocket) {
+                    // In static mode, show current status and instructions
+                    const enabled = {{ profiler_enabled|yesno:"true,false" }};
+                    const status = enabled ? 'ENABLED' : 'DISABLED';
+                    alert(`Profiler is currently ${status}.\n\nTo toggle:\n1. Set PROFILEBOARD_ENABLED = ${!enabled} in settings.py\n2. Restart Django server`);
+                    return;
+                }
                 this.websocket.send(JSON.stringify({
                     type: 'toggle_profiler',
                     enabled: !this.isProfilerEnabled
@@ -555,8 +758,85 @@
                 window.open(`/__monitor__/export/?time_range=${timeRange}&format=csv`);
             }
 
+            addPadding(points) {
+                if (!points) return '';
+                return points.split(' ').map(point => {
+                    const [x, y] = point.split(',').map(Number);
+                    const paddedX = 10 + (x * 0.8);
+                    const paddedY = 10 + (y * 0.8);
+                    return `${paddedX},${paddedY}`;
+                }).join(' ');
+            }
+
+            attachZoomHandler(sliderId, chartName) {
+                setTimeout(() => {
+                    const slider = document.getElementById(sliderId);
+                    if (slider) {
+                        slider.addEventListener('input', (e) => {
+                            this.zoomChart(chartName, e.target.value);
+                        });
+                    }
+                }, 100);
+            }
+
+            showTooltip(event, type, data, max) {
+                const rect = event.currentTarget.getBoundingClientRect();
+                const x = ((event.clientX - rect.left) / rect.width) * 100;
+                const index = Math.round((x / 100) * (data.length - 1));
+                
+                if (index >= 0 && index < data.length) {
+                    let tooltip = document.getElementById('chart-tooltip');
+                    if (!tooltip) {
+                        tooltip = document.createElement('div');
+                        tooltip.id = 'chart-tooltip';
+                        tooltip.className = 'tooltip';
+                        document.body.appendChild(tooltip);
+                    }
+                    
+                    let content = '';
+                    if (type === 'response') {
+                        content = `${data[index].duration.toFixed(3)}s`;
+                    } else if (type === 'db') {
+                        content = `${data[index].db_queries_count} queries`;
+                    } else if (type === 'memory') {
+                        content = `${data[index].memory_usage.toFixed(1)}MB`;
+                    } else if (type === 'volume') {
+                        const hour = Object.keys(data)[index];
+                        content = `Hour ${hour}: ${data[hour]} requests`;
+                    }
+                    
+                    tooltip.textContent = content;
+                    tooltip.style.left = event.pageX + 10 + 'px';
+                    tooltip.style.top = event.pageY - 30 + 'px';
+                    tooltip.style.display = 'block';
+                }
+            }
+
+            hideTooltip() {
+                const tooltip = document.getElementById('chart-tooltip');
+                if (tooltip) {
+                    tooltip.style.display = 'none';
+                }
+            }
+
+            zoomChart(chartName, zoomLevel) {
+                const chart = this.charts[chartName];
+                if (!chart) return;
+                
+                const svg = chart.querySelector('svg');
+                if (svg) {
+                    const scale = parseFloat(zoomLevel);
+                    svg.style.transform = `scale(${scale})`;
+                    svg.style.transformOrigin = 'center';
+                }
+            }
+
             updateTimeRange() {
                 const timeRange = document.getElementById('time-range').value;
+                if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+                    window.location.href = `?time_range=${timeRange}`;
+                    return;
+                }
                 this.websocket.send(JSON.stringify({
                     type: 'request_history',
                     params: { time_range: timeRange }
@@ -564,13 +844,16 @@
             }
         }
 
-        // Initialize dashboard
-        const dashboard = new ProfileDashboard();
+        // Initialize dashboard after page loads
+        window.addEventListener('load', () => {
+            const dashboard = new ProfileDashboard();
+            window.dashboard = dashboard;
+        });
 
         // Global functions for button clicks
-        function toggleProfiler() { dashboard.toggleProfiler(); }
-        function exportData() { dashboard.exportData(); }
-        function updateTimeRange() { dashboard.updateTimeRange(); }
+        function toggleProfiler() { window.dashboard?.toggleProfiler(); }
+        function exportData() { window.dashboard?.exportData(); }
+        function updateTimeRange() { window.dashboard?.updateTimeRange(); }
     </script>
 </body>
 </html>

@@ -6,6 +6,8 @@ from django.utils.decorators import method_decorator
 from django.views.generic import TemplateView
 from django.db.models import Count, Avg, Sum, Q, Max
 from django.utils import timezone
+from django.core.serializers.json import DjangoJSONEncoder
+from django.conf import settings
 from datetime import timedelta
 import csv
 import json
@@ -28,24 +30,72 @@ class ProfileDashboardView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
+        # Get time range from request
+        time_range = self.request.GET.get('time_range', '1h')
+        
         # Add initial data for dashboard
+        stats = self._get_initial_stats(time_range)
         context.update({
-            'websocket_url': 'ws://localhost:8000/ws/profileboard/',  # Configure for your domain
-            'dashboard_stats': self._get_initial_stats(),
+            'websocket_url': getattr(settings, 'PROFILEBOARD_WEBSOCKET_ENABLED', False),
+            'dashboard_stats': json.dumps(stats, cls=DjangoJSONEncoder),
+            'profiler_enabled': getattr(settings, 'PROFILEBOARD_ENABLED', True),
         })
 
         return context
 
-    def _get_initial_stats(self):
+    def _get_initial_stats(self, time_range='1h'):
         """Get initial statistics for dashboard"""
-        since = timezone.now() - timedelta(hours=24)
-
-        return RequestProfile.objects.filter(timestamp__gte=since).aggregate(
+        # Parse time range
+        if time_range == '1m':
+            since = timezone.now() - timedelta(minutes=1)
+        elif time_range == '5m':
+            since = timezone.now() - timedelta(minutes=5)
+        elif time_range == '30m':
+            since = timezone.now() - timedelta(minutes=30)
+        elif time_range == '1h':
+            since = timezone.now() - timedelta(hours=1)
+        elif time_range == '24h':
+            since = timezone.now() - timedelta(days=1)
+        elif time_range == '7d':
+            since = timezone.now() - timedelta(days=7)
+        else:
+            since = timezone.now() - timedelta(hours=1)
+        
+        stats = RequestProfile.objects.filter(timestamp__gte=since).aggregate(
             total_requests=Count('id'),
             avg_duration=Avg('duration'),
-            error_rate=Count('id', filter=Q(is_error=True)) * 100.0 / Count('id'),
+            error_count=Count('id', filter=Q(is_error=True)),
             slowest_request=Max('duration'),
         )
+        
+        # Calculate error rate safely
+        if stats['total_requests'] and stats['total_requests'] > 0:
+            stats['error_rate'] = (stats['error_count'] * 100.0) / stats['total_requests']
+        else:
+            stats['error_rate'] = 0
+            
+        # Add recent requests for display
+        recent_requests = RequestProfile.objects.filter(
+            timestamp__gte=since
+        ).order_by('-timestamp')[:50]
+        
+        stats['recent_requests'] = [
+            {
+                'id': str(req.id),
+                'timestamp': req.timestamp.isoformat(),
+                'url': req.url,
+                'view_name': req.view_name,
+                'method': req.method,
+                'duration': req.duration,
+                'status_code': req.status_code,
+                'is_error': req.is_error,
+                'db_queries_count': req.db_queries_count,
+                'memory_usage': req.memory_usage or 0
+            }
+            for req in recent_requests
+        ]
+        
+        return stats
 
 
 @login_required
@@ -154,4 +204,31 @@ def query_analysis(request, profile_id):
     return JsonResponse({
         'profile_id': str(profile.id),
         'analysis': analysis
+    })
+
+
+@login_required
+@user_passes_test(is_staff_or_profiler_admin)
+@require_http_methods(["GET"])
+def request_details_api(request, request_id):
+    """Get request details via API"""
+    profile = get_object_or_404(RequestProfile, id=request_id)
+    
+    queries = list(profile.database_queries.values(
+        'sql', 'duration', 'params'
+    )[:10])  # Limit to 10 queries
+    
+    return JsonResponse({
+        'id': str(profile.id),
+        'url': profile.url,
+        'method': profile.method,
+        'view_name': profile.view_name,
+        'duration': profile.duration,
+        'status_code': profile.status_code,
+        'memory_usage': profile.memory_usage or 0,
+        'db_queries_count': profile.db_queries_count,
+        'timestamp': profile.timestamp.isoformat(),
+        'is_error': profile.is_error,
+        'database_queries': queries,
+        'api_calls': []  # No API calls tracked yet
     })

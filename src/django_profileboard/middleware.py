@@ -125,17 +125,24 @@ class RequestProfilerMiddleware(MiddlewareMixin):
 
     def _should_profile(self, request) -> bool:
         """Determine if this request should be profiled"""
-        # Check feature flag
-        from flags.state import flag_enabled
-        if not flag_enabled('PERFORMANCE_PROFILER_ENABLED'):
+        # Check if profiler is enabled in settings
+        if not getattr(settings, 'PROFILEBOARD_ENABLED', True):
             return False
 
-        # Skip profiling for profiler dashboard itself
+        # Skip profiling for profiler dashboard itself and profiler operations
         if request.path.startswith('/__monitor__'):
+            return False
+
+        # Skip profiling database operations from the profiler itself
+        if hasattr(self._local, 'profiling_in_progress'):
             return False
 
         # Skip static files
         if request.path.startswith('/static/') or request.path.startswith('/media/'):
+            return False
+
+        # Skip common noise requests
+        if request.path.startswith('/.well-known/') or request.path.startswith('/ws/'):
             return False
 
         return True
@@ -163,6 +170,8 @@ class RequestProfilerMiddleware(MiddlewareMixin):
 
     def _store_profile_async(self, profile_data: Dict[str, Any]):
         """Store profile data to database (could be made async with Celery)"""
+        # Prevent recursive profiling
+        self._local.profiling_in_progress = True
         try:
             # Create RequestProfile instance
             request_profile = RequestProfile.objects.create(
@@ -191,6 +200,10 @@ class RequestProfilerMiddleware(MiddlewareMixin):
 
         except Exception as e:
             logging.error(f"Failed to store profile data: {e}", exc_info=True)
+        finally:
+            # Clear the flag
+            if hasattr(self._local, 'profiling_in_progress'):
+                delattr(self._local, 'profiling_in_progress')
 
     def _calculate_query_hash(self, sql: str) -> str:
         """Calculate hash for similar query detection"""
