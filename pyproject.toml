@@ -9,7 +9,7 @@ description = "Production-ready Django performance profiler with live dashboard"
 readme = "README.md"
 license = "MIT"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "Surendra Reddy Kamini", email = "reddysurendra106@gmail.com"},
 ]
 keywords = ["django", "profiling", "performance", "dashboard", "monitoring"]
 classifiers = [
